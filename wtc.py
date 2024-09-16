@@ -433,7 +433,7 @@ def wtc4(name, save, rsph, mesh, trsk, xmid, ymid):
     ttic = time.time()
     hh_cell, info = gcrotmk(
         trsk.cell_del2_sums, rh_edge, 
-            tol=1.E-10, atol=1.E-10, m=50, k=25)
+            rtol=1.E-10, atol=1.E-10, m=50, k=25)
     ttoc = time.time()
    #print(ttoc - ttic)    
 
@@ -673,7 +673,7 @@ def wtc6(name, save, rsph, mesh, trsk, xmid, ymid):
     ttic = time.time()
     hh_cell, info = gcrotmk(
         trsk.cell_del2_sums, rh_edge, 
-            tol=1.E-10, atol=1.E-10, m=50, k=25)
+            rtol=1.E-10, atol=1.E-10, m=50, k=25)
     ttoc = time.time()
    #print(ttoc - ttic)    
 
