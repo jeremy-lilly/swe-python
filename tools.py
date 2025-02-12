@@ -13,15 +13,17 @@ def calc_compression(tt):
 # END calc_compression()
 
 
-def get_compression_data(data):
+def get_compression_data(data, get_rank=False):
     nvars = len(data)
     ntimeLevels = data[0]['var'].shape[0]
 
     compression = []
     err = []
+    rank = []
     for i in range(nvars):
         compression.append(np.zeros(ntimeLevels))
         err.append(np.zeros(ntimeLevels))
+        rank.append(np.zeros(ntimeLevels))
     # END for
     
     for level in range(ntimeLevels):
@@ -36,29 +38,47 @@ def get_compression_data(data):
         
             err[ind][level] = (np.sqrt(np.sum((var_tt.full().flatten() - var)**2)) /
                                (np.sqrt(np.sum(var**2)) + 1e-32))
+
+            rank[ind][level] = np.max(var_tt.R)
         # END for
     # END for
-    return compression, err
+    if get_rank:
+        return compression, err, rank
+    else:
+        return compression, err
 # END get_compression_data()
 
 
-def make_eps_plot(data, compression, err, figtitle, savefile):
+def make_eps_plot(data, compression, err, test_case, figtitle, savefile, rank=False):
     nvars = len(data)
     ntimeLevels = data[0]['var'].shape[0]
+
+    time_step = {'jet': 200.0,
+                 'wtc5': 250.0,
+                 'ltc1': 600.0,
+                 'mpas': 480.0}
+    save_freq = {'jet': 432,
+                 'wtc5': 192,
+                 'ltc1': 72,
+                 'mpas': 4 * 60 * 60 / 480.0}
     
-    time_step = 480
-    save_freq = 4 * 60 * 60 / time_step
-    time = time_step * save_freq * np.arange(ntimeLevels) / 60 / 60 / 24
+    time = time_step[test_case] * save_freq[test_case] * np.arange(ntimeLevels) / 60 / 60 / 24
     ones = np.ones(ntimeLevels)
+
+    if rank:
+        nplots = 3
+    else:
+        nplots = 2
+    # END if
     
-    fig, axes = plt.subplots(2, 1, tight_layout=True)
+    fig, axes = plt.subplots(nplots, 1, tight_layout=True)
 
     for ind in range(nvars):
         axes[0].plot(time, compression[ind], 'o-', label=f'{data[ind]['name']}, eps={data[ind]['eps']}')
     # END for
     axes[0].plot(time, ones, ':k')
     axes[0].set(ylabel='compression')
-    axes[0].legend()
+    axes[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
 
     for ind in range(nvars):
         axes[1].plot(time, err[ind], 'x--', label=f'{data[ind]['name']}, eps={data[ind]['eps']}')
@@ -66,7 +86,16 @@ def make_eps_plot(data, compression, err, figtitle, savefile):
     axes[1].set(yscale='log',
                 xlabel='time (days)',
                 ylabel='normalized frob error')
-    axes[1].legend()
+    #axes[1].legend()
+
+    if rank:
+        for ind in range(nvars):
+            axes[2].plot(time, rank[ind], '*:', label=f'{data[ind]['name']}, eps={data[ind]['eps']}')
+        # END for
+        axes[2].set(xlabel='time (days)',
+                    ylabel='max rank')
+        #axes[2].legend()
+    # END if
     
     fig.suptitle(figtitle)
     plt.savefig(savefile)
@@ -196,31 +225,55 @@ def get_spiral_cell_order(filename):
 # END get_spiral_order()
 
 
-def get_bfs_cell_order(filename):
+def get_bfs_order(filename, ind_type):
     ds = nc.Dataset(filename)
-    
-    cells_on_cell = ds.variables['cellsOnCell']
-    visited = np.zeros(ds.dimensions['nCells'].size, dtype=int)
-    root_ind = 0
-    
-    sorted_cell_inds = []
-    queue = [root_ind]
-    visited[root_ind] = 1
-    while queue:
-        cur_ind = queue.pop(0)
-        sorted_cell_inds.append(cur_ind)
-    
-        adjacent_inds = np.array(cells_on_cell[cur_ind][cells_on_cell[cur_ind] != 0]) - 1
-        for ind in adjacent_inds:
-            if not visited[ind]:
-                queue.append(ind)
-                visited[ind] = 1
-            # END if
-        # END for
-    # END while   
-    bfs_cell_inds = np.array(sorted_cell_inds)
-    #print(bfs_cell_inds)
+
+    if ind_type == 'cells':
+        cells_on_cell = ds.variables['cellsOnCell']
+        visited = np.zeros(ds.dimensions['nCells'].size, dtype=int)
+        root_ind = 0
+        
+        sorted_cell_inds = []
+        queue = [root_ind]
+        visited[root_ind] = 1
+        while queue:
+            cur_ind = queue.pop(0)
+            sorted_cell_inds.append(cur_ind)
+        
+            adjacent_inds = np.array(cells_on_cell[cur_ind][cells_on_cell[cur_ind] != 0]) - 1
+            for ind in adjacent_inds:
+                if not visited[ind]:
+                    queue.append(ind)
+                    visited[ind] = 1
+                # END if
+            # END for
+        # END while   
+        ordered_inds = np.array(sorted_cell_inds)
+    elif ind_type == 'edges':
+        edges_on_edge = ds.variables['edgesOnEdge']
+        visited = np.zeros(ds.dimensions['nEdges'].size, dtype=int)
+        root_ind = 0
+        
+        sorted_edge_inds = []
+        queue = [root_ind]
+        visited[root_ind] = 1
+        while queue:
+            cur_ind = queue.pop(0)
+            sorted_edge_inds.append(cur_ind)
+        
+            adjacent_inds = np.array(edges_on_edge[cur_ind][edges_on_edge[cur_ind] != 0]) - 1
+            for ind in adjacent_inds:
+                if not visited[ind]:
+                    queue.append(ind)
+                    visited[ind] = 1
+                # END if
+            # END for
+        # END while   
+        ordered_inds = np.array(sorted_edge_inds)
+    else:
+        print(f'Incorrect ind_type = {ind_type}.')
+    # END if
     
     ds.close()
-    return bfs_cell_inds
+    return ordered_inds
 # END get_bfs_order()
