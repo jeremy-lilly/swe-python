@@ -2,7 +2,7 @@
 import time
 import numpy as np
 from scipy.sparse.linalg import gcrotmk
-from scipy.integrate import quadrature
+from scipy.integrate import quad
 
 import xarray
 import argparse
@@ -22,13 +22,13 @@ def ujet(alat, lat0, lat1, uamp, rsph):
 
     """
 
-    vals = -rsph * uamp * np.exp(
-        1.0E+0 / ((alat - lat0) * (alat - lat1)))
+    if alat < lat0 or alat > lat1:
+        val = 0
+    else:
+        val = -rsph * uamp * np.exp(
+              1.0E+0 / ((alat - lat0) * (alat - lat1)))
 
-    vals[alat < lat0] = 0.0
-    vals[alat > lat1] = 0.0
-
-    return vals
+    return val
 
 
 def init(name, save, rsph=1.E+0, pert=True):
@@ -91,8 +91,8 @@ def init(name, save, rsph=1.E+0, pert=True):
     for vert in range(mesh.vert.size):
         alat = mesh.vert.ylat[vert]
         if (alat >= lat0 and alat < lat1):
-            vpsi[vert], _ = quadrature(
-                ujet, lat0, alat, miniter=8,
+            vpsi[vert], _ = quad(
+                ujet, lat0, alat, #miniter=8,
                 args=(lat0, lat1, uamp, mesh.rsph))
 
     vpsi[mesh.vert.ylat[:] >= lat1] = np.min(vpsi)
@@ -102,8 +102,8 @@ def init(name, save, rsph=1.E+0, pert=True):
     for cell in range(mesh.cell.size):
         alat = mesh.cell.ylat[cell]
         if (alat >= lat0 and alat < lat1):
-            cpsi[cell], _ = quadrature(
-                ujet, lat0, alat, miniter=8,
+            cpsi[cell], _ = quad(
+                ujet, lat0, alat, #miniter=8,
                 args=(lat0, lat1, uamp, mesh.rsph))
 
     cpsi[mesh.cell.ylat[:] >= lat1] = np.min(cpsi)
