@@ -2,7 +2,7 @@
 import time
 import numpy as np
 from scipy.sparse.linalg import gcrotmk
-from scipy.integrate import quadrature
+from scipy.integrate import quad
 
 import xarray
 import argparse
@@ -364,9 +364,9 @@ def wtc4(name, save, rsph, mesh, trsk, xmid, ymid):
         mesh.cell.size, dtype=np.float64)
 
     for vert in range(mesh.vert.size):
-        sf_vert[vert], _ = quadrature(
+        sf_vert[vert], _ = quad(
             ufn4, -np.pi / 2., mesh.vert.ylat[vert], 
-            miniter=16, args=(umag, mesh.rsph))
+            args=(umag, mesh.rsph))
 
     cc_0 = np.sin(yy_0) * np.sin(mesh.vert.ylat) + \
            np.cos(yy_0) * np.cos(mesh.vert.ylat) * \
@@ -380,9 +380,9 @@ def wtc4(name, save, rsph, mesh, trsk, xmid, ymid):
     print("--> done: vert!")
 
     for cell in range(mesh.cell.size):
-        sf_cell[cell], _ = quadrature(
+        sf_cell[cell], _ = quad(
             ufn4, -np.pi / 2., mesh.cell.ylat[cell], 
-            miniter=16, args=(umag, mesh.rsph))
+            args=(umag, mesh.rsph))
 
     cc_0 = np.sin(yy_0) * np.sin(mesh.cell.ylat) + \
            np.cos(yy_0) * np.cos(mesh.cell.ylat) * \
