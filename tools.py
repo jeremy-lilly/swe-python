@@ -53,6 +53,9 @@ def make_eps_plot(data, compression, err, test_case, figtitle, savefile, rank=Fa
     nvars = len(data)
     ntimeLevels = data[0]['var'].shape[0]
 
+    # note that these values work for cv5-7, not 8,9
+    # for those, we cut the time_step successivly in half
+    # and double save_freq accordingly
     time_step = {'jet': 200.0,
                  'wtc5': 250.0,
                  'ltc1': 600.0,
@@ -70,15 +73,20 @@ def make_eps_plot(data, compression, err, test_case, figtitle, savefile, rank=Fa
     else:
         nplots = 2
     # END if
+
+    figsize = [6.4, 4.8]
+    figsize[1] = max(figsize[1], 0.2 * nvars * figsize[1])
     
-    fig, axes = plt.subplots(nplots, 1, tight_layout=True)
+    fig, axes = plt.subplots(nplots, 1, 
+                             figsize=figsize,
+                             tight_layout=True)
 
     for ind in range(nvars):
         axes[0].plot(time, compression[ind], 'o-', label=f'{data[ind]['name']}, eps={data[ind]['eps']}')
     # END for
     axes[0].plot(time, ones, ':k')
     axes[0].set(ylabel='compression')
-    axes[0].legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    axes[0].legend(bbox_to_anchor=(0.5, 1.04), loc="lower center")
 
     for ind in range(nvars):
         axes[1].plot(time, err[ind], 'x--', label=f'{data[ind]['name']}, eps={data[ind]['eps']}')
@@ -101,6 +109,37 @@ def make_eps_plot(data, compression, err, test_case, figtitle, savefile, rank=Fa
     plt.savefig(savefile)
     plt.show()
 # END make_eps_plot()
+
+
+def make_shuffle_plot(h, u):
+    h_shuffle = np.copy(h)
+    u_shuffle = np.copy(u)
+    
+    nshuffles = 100
+    h_final_compression = np.zeros(nshuffles)
+    u_final_compression = np.zeros(nshuffles)
+    for i in range(nshuffles):
+        np.random.shuffle(h_shuffle)
+        np.random.shuffle(u_shuffle)
+    
+        h_tt = tt.TT(h_shuffle, tt_tens_shape_cell, eps=eps_h)
+        u_tt = tt.TT(u_shuffle, tt_tens_shape_edge, eps=eps_u)
+    
+        h_final_compression[i], _ = calc_compression(h_tt)
+        u_final_compression[i], _ = calc_compression(u_tt)
+    # END for
+
+    fig, ax = plt.subplots(tight_layout=True)
+
+    ax.hist(h_final_compression, label=f'h, eps={eps_h}')
+    ax.hist(u_final_compression, label=f'u, eps={eps_u}')
+    ax.plot(np.ones(int(1.1 * nshuffles)), np.arange(int(1.1 * nshuffles)), ':k')
+    ax.set(xlabel='compression',
+           ylabel='shuffles',
+           title=f'TT compression for final state of {test_case} on mesh cvt_{mesh_num}')
+    plt.savefig(f'compression_shuffle_{test_case}_{mesh_num}.png')
+    plt.show()
+# END make_shuffle_plot()
 
 
 def order_by_angle(ds, root, adjacent):
@@ -277,3 +316,13 @@ def get_bfs_order(filename, ind_type):
     ds.close()
     return ordered_inds
 # END get_bfs_order()
+
+
+def get_npatches_lists():
+    return {'5': [2, 3, 6, 9],
+            '6': [2, 3, 6],
+            '7': [2, 3, 6, 7, 14],
+            '8': [2, 3, 6, 9, 18],
+            '9': [2, 3, 6]}
+# END get_npatches_lists()
+
