@@ -70,6 +70,7 @@ def swe(cnfg):
     mesh = sort_mesh(mesh, True)
     flow = sort_flow(flow, mesh, lean=True)
 
+
     u0_edge = flow.uu_edge[-1, :, 0]
     uu_edge = u0_edge
     ut_edge = u0_edge * 0.0
@@ -273,7 +274,7 @@ def init_file(name, cnfg, save, mesh, flow):
     data.createDimension("nVertLevels", 1)
     data.createDimension("maxEdges", np.max(mesh.cell.topo) * 1)
     data.createDimension("maxEdges2", np.max(mesh.cell.topo) * 2)
-    data.createDimension("vertexDegree", 3)
+    data.createDimension("vertexDegree", mesh.vert.degr)
 
     data.createVariable("lonCell", "f8", ("nCells"))
     data["lonCell"][:] = mesh.cell.xlon
