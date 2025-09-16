@@ -232,7 +232,7 @@ def upwinding(mesh, trsk, cnfg,
         )   ) ** 2) ** 2) ** 2
 
         dm_vert = np.sqrt(np.sqrt(np.sqrt(
-            (trsk.dual_edge_sums * dm_edge) / 3.
+            (trsk.dual_edge_sums * dm_edge) / mesh.vert.degr
         )   )   ) + sv_tiny
 
         ds_dual = ( ( (
@@ -341,7 +341,8 @@ def computePV(mesh, trsk, cnfg,
         lo_edge/= hm_edge
 
     #-- average rhombi to dual -- a'la Gassmann
-        lo_dual = trsk.dual_edge_sums * lo_edge / 3.0
+        #lo_dual = trsk.dual_edge_sums * lo_edge / 3.0
+        lo_dual = trsk.dual_edge_sums * lo_edge / mesh.vert.degr
 
     #-- compute high(er)-order RV + PV on edges:
     #-- pv_edge = pv_dual + (xe - xv) * pv_d/dx
@@ -393,7 +394,7 @@ def computePV(mesh, trsk, cnfg,
         lo_edge = pv_edge
         hi_edge = pv_edge
         
-        lo_dual = trsk.dual_edge_sums * lo_edge / 3.0
+        lo_dual = trsk.dual_edge_sums * lo_edge / mesh.vert.degr
         
         if ("UPWIND" in cnfg.pv_scheme):
 
@@ -459,7 +460,7 @@ def computeKE(mesh, trsk, cnfg,
             hi_edge = ke_edge
 
             lo_dual = \
-                trsk.dual_edge_sums * ke_edge / 3.0
+                trsk.dual_edge_sums * ke_edge / mesh.vert.degr
 
             ke_edge, up_edge = upwinding(
                 mesh, trsk, cnfg, 
@@ -522,7 +523,7 @@ def computeKE(mesh, trsk, cnfg,
             hi_edge = ke_edge
 
             lo_dual = \
-                trsk.dual_edge_sums * ke_edge / 3.0
+                trsk.dual_edge_sums * ke_edge / mesh.vert.degr 
 
             ke_edge, up_edge = upwinding(
                 mesh, trsk, cnfg, 

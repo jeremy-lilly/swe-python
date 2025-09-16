@@ -161,6 +161,8 @@ def trsk_mats(mesh):
         0, mesh.edge.size, mesh.edge.size)
 
     trsk.edge_flux_perp = dmat * wmat * lmat
+    # needed for boundary conditions?
+    trsk.edge_flux_perp[mesh.edge.mask, :] *= 0.
 
     ttoc = time.time()
    #print("wnrm:", ttoc - ttic)
@@ -386,6 +388,11 @@ def edge_stub_sums(mesh):
 
         stub = mesh.edge.stub[:, vert]
 
+        mask = vidx >= 0
+        eidx = eidx[mask]
+        vidx = vidx[mask]
+        stub = stub[mask]
+
         ivec = np.hstack((ivec, eidx))
         jvec = np.hstack((jvec, vidx))
         xvec = np.hstack((xvec, stub))
@@ -404,8 +411,13 @@ def edge_wing_sums(mesh):
         eidx = np.arange(0, mesh.edge.size)
 
         cidx = mesh.edge.cell[:, cell] - 1
-
         wing = mesh.edge.wing[:, cell]
+
+        mask = cidx >= 0
+        eidx = eidx[mask]
+        cidx = cidx[mask]
+        wing = wing[mask]
+
 
         ivec = np.hstack((ivec, eidx))
         jvec = np.hstack((jvec, cidx))
@@ -426,6 +438,10 @@ def edge_vert_sums(mesh):
 
         vidx = mesh.edge.vert[:, vert] - 1
 
+        mask = vidx >= 0
+        eidx = eidx[mask]
+        vidx = vidx[mask]
+
         ivec = np.hstack((ivec, eidx))
         jvec = np.hstack((jvec, vidx))
         xvec = np.hstack((
@@ -442,9 +458,10 @@ def edge_cell_sums(mesh):
 
     for cell in range(2):
 
-        eidx = np.arange(0, mesh.edge.size)
+        mask = mesh.edge.cell[:, cell] > 0
+        eidx = np.arange(0, mesh.edge.size)[mask]
 
-        cidx = mesh.edge.cell[:, cell] - 1
+        cidx = mesh.edge.cell[mask, cell] - 1
 
         ivec = np.hstack((ivec, eidx))
         jvec = np.hstack((jvec, cidx))
@@ -460,19 +477,23 @@ def edge_grad_norm(mesh):
 #-- operator OP. Use GRAD(Q) = OP * Q where Q is a vector of
 #-- cell-centred scalars for all cells in the mesh.
 
-    icel = mesh.edge.cell[:, 0] - 1
-    jcel = mesh.edge.cell[:, 1] - 1
+    # edges on the boundary should have grad 0
+    # so mask them
+    mask = np.all(mesh.edge.cell > 0, axis=1)
+    eidx = np.arange(0, mesh.edge.size)[mask]
 
-    eidx = np.arange(+0, mesh.edge.size)
+    icel = mesh.edge.cell[mask, 0] - 1
+    jcel = mesh.edge.cell[mask, 1] - 1
 
-    clen = mesh.edge.clen
+    clen = mesh.edge.clen[mask]
 
     ivec = np.concatenate((eidx, eidx))
     jvec = np.concatenate((icel, jcel))
     xvec = np.concatenate(
         (-1.E+0 / clen, +1.E+0 / clen))
-    
-    return csr_matrix((xvec, (ivec, jvec)))
+
+    return csr_matrix((xvec, (ivec, jvec)),
+                      shape=[mesh.edge.size, mesh.cell.size])
 
 
 def edge_grad_perp(mesh):
@@ -481,19 +502,28 @@ def edge_grad_perp(mesh):
 #-- operator OP. Use GRAD(V) = OP * V where V is a vector of
 #-- node-centred scalars for all nodes in the mesh.
 
-    inod = mesh.edge.vert[:, 0] - 1
-    jnod = mesh.edge.vert[:, 1] - 1
+    ivrt = mesh.edge.vert[:, 0] - 1
+    jvrt = mesh.edge.vert[:, 1] - 1
 
     eidx = np.arange(+0, mesh.edge.size)
 
     vlen = mesh.edge.vlen
 
+    mask = np.logical_and.reduce((ivrt >= 0, 
+                                  jvrt >= 0)
+        )
+    ivrt = ivrt[mask]
+    jvrt = jvrt[mask]
+    eidx = eidx[mask]
+    vlen = vlen[mask]
+
     ivec = np.concatenate((eidx, eidx))
-    jvec = np.concatenate((inod, jnod))
+    jvec = np.concatenate((ivrt, jvrt))
     xvec = np.concatenate(
         (-1.E+0 / vlen, +1.E+0 / vlen))
     
-    return csr_matrix((xvec, (ivec, jvec)))
+    return csr_matrix((xvec, (ivec, jvec)), 
+        shape=(mesh.edge.size, mesh.vert.size))
 
 
 def edge_flux_perp(mesh):
@@ -509,27 +539,28 @@ def edge_flux_perp(mesh):
 
     for edge in range(np.max(mesh.edge.topo)):
 
-        mask = mesh.edge.topo > edge
+        mask = np.all(np.vstack((mesh.edge.edge[:, edge] > 0,
+                                 mesh.edge.cell[:, 0] > 0,
+                                 mesh.edge.cell[:, 1] > 0)), axis=0)
 
-        eidx = np.argwhere(mask).ravel()
-
+        eidx = np.arange(0, mesh.edge.size)[mask]
         edsh = mesh.edge.edge[mask, edge] - 1
-
         wmul = mesh.edge.wmul[mask, edge]
-
+        
         ivec = np.hstack((ivec, eidx))
         jvec = np.hstack((jvec, edsh))
         xvec = np.hstack((xvec, wmul))
 
-    return csr_matrix((xvec, (ivec, jvec)))
+    return csr_matrix((xvec, (ivec, jvec)), 
+                      shape=(mesh.edge.size, mesh.edge.size))
 
 
 def dual_edge_sign(mesh):
 
     sign = np.zeros(
-        (mesh.vert.size, 3), dtype=np.int32)
+        (mesh.vert.size, mesh.vert.degr), dtype=np.int32)
 
-    for edge in range(3):
+    for edge in range(mesh.vert.degr):
 
         vidx = np.arange(0, mesh.vert.size)
 
@@ -553,12 +584,14 @@ def dual_flux_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
-    for edge in range(3):
+    for edge in range(mesh.vert.degr):
 
-        vidx = np.arange(0, mesh.vert.size)
+        mask = mesh.vert.edge[:, edge] > 0
 
-        eidx = mesh.vert.edge[:, edge] - 1
-        cidx = mesh.vert.cell[:, edge] - 1
+        vidx = np.arange(0, mesh.vert.size)[mask]
+
+        eidx = mesh.vert.edge[mask, edge] - 1
+        cidx = mesh.vert.cell[mask, edge] - 1
 
         clen = mesh.edge.clen[eidx]
 
@@ -587,12 +620,17 @@ def dual_curl_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
-    for edge in range(3):
+    for edge in range(mesh.vert.degr):
 
         vidx = np.arange(0, mesh.vert.size)
 
         eidx = mesh.vert.edge[:, edge] - 1
         cidx = mesh.vert.cell[:, edge] - 1
+
+        mask = eidx >= 0
+        vidx = vidx[mask]
+        eidx = eidx[mask]
+        cidx = cidx[mask]
 
         clen = mesh.edge.clen[eidx]
 
@@ -617,13 +655,15 @@ def dual_kite_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
-    for cell in range(3):
+    for cell in range(mesh.vert.degr):
 
-        vidx = np.arange(0, mesh.vert.size)
+        mask = mesh.vert.cell[:, cell] > 0
 
-        cidx = mesh.vert.cell[:, cell] - 1
+        vidx = np.arange(0, mesh.vert.size)[mask]
 
-        kite = mesh.vert.kite[:, cell]
+        cidx = mesh.vert.cell[mask, cell] - 1
+
+        kite = mesh.vert.kite[mask, cell]
 
         ivec = np.hstack((ivec, vidx))
         jvec = np.hstack((jvec, cidx))
@@ -638,14 +678,15 @@ def dual_cell_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
-    for cell in range(3):
+    for cell in range(mesh.vert.degr):
 
-        vidx = np.arange(0, mesh.vert.size)
+        mask = mesh.vert.cell[:, cell] > 0
+        vidx = np.arange(0, mesh.vert.size)[mask]
 
-        cidx = mesh.vert.cell[:, cell] - 1
+        cidx = mesh.vert.cell[mask, cell] - 1
 
         unit = np.ones(
-            mesh.vert.size, dtype=np.float64)
+            vidx.size, dtype=np.float64)
 
         ivec = np.hstack((ivec, vidx))
         jvec = np.hstack((jvec, cidx))
@@ -660,14 +701,15 @@ def dual_edge_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
-    for edge in range(3):
+    for edge in range(mesh.vert.degr):
 
-        vidx = np.arange(0, mesh.vert.size)
+        mask = mesh.vert.edge[:, edge] > 0
+        vidx = np.arange(0, mesh.vert.size)[mask]
 
-        eidx = mesh.vert.edge[:, edge] - 1
+        eidx = mesh.vert.edge[mask, edge] - 1
 
         unit = np.ones(
-            mesh.vert.size, dtype=np.float64)
+            vidx.size, dtype=np.float64)
 
         ivec = np.hstack((ivec, vidx))
         jvec = np.hstack((jvec, eidx))
@@ -689,30 +731,31 @@ def dual_lsqr_mats(mesh):
         mesh.edge.yprp, mesh.edge.zprp)).T
 
     dnrm = np.vstack((
-        mesh.vert.xmid, 
-        mesh.vert.ymid, mesh.vert.zmid)).T
+        mesh.vert.xpos, 
+        mesh.vert.ypos, mesh.vert.zpos)).T
     
-    dnrm = dnrm / mesh.rsph
+    if (mesh.rsph is not None):
+        dnrm = dnrm / mesh.rsph
     
     Amat = np.zeros(
-        (4, 3, mesh.vert.size), dtype=np.float64)
-    Amat[0, :, :] = \
-        ndir[mesh.vert.edge[:, 0] - 1].T
-    Amat[1, :, :] = \
-        ndir[mesh.vert.edge[:, 1] - 1].T
-    Amat[2, :, :] = \
-        ndir[mesh.vert.edge[:, 2] - 1].T
-    Amat[3, :, :] = np.transpose(dnrm)
-
+        (mesh.vert.degr + 1, 3, mesh.vert.size), dtype=np.float64)
     Bmat = np.zeros(
-        (4, 3, mesh.vert.size), dtype=np.float64)
-    Bmat[0, :, :] = \
-        pdir[mesh.vert.edge[:, 0] - 1].T
-    Bmat[1, :, :] = \
-        pdir[mesh.vert.edge[:, 1] - 1].T
-    Bmat[2, :, :] = \
-        pdir[mesh.vert.edge[:, 2] - 1].T
-    Bmat[3, :, :] = np.transpose(dnrm)
+        (mesh.vert.degr + 1, 3, mesh.vert.size), dtype=np.float64)
+        
+    for edge in range(mesh.vert.degr):
+    
+        eidx = mesh.vert.edge[:, edge] - 1
+
+        mask = eidx >= 0;
+        eidx = eidx[mask]
+
+        Amat[edge, :, mask] = ndir[eidx]
+        Bmat[edge, :, mask] = pdir[eidx]
+            
+    Amat[-1, :, :] = np.transpose(dnrm)
+    Bmat[-1, :, :] = np.transpose(dnrm)
+
+    del ndir; del pdir; del dnrm
 
     matA = np.transpose(Amat, axes=(1, 0, 2))
     matB = np.transpose(Bmat, axes=(1, 0, 2))
@@ -739,13 +782,15 @@ def dual_lsqr_fxyz(mesh):
     xprp = []; yprp = []; zprp = []
     ivec = []; jvec = []
 
-    for edge in range(3):
+    for edge in range(mesh.vert.degr):
 
         vidx = np.arange(0, mesh.vert.size)
 
         eidx = mesh.vert.edge[:, edge] - 1
 
-        mask = eidx >= 0
+        mask = eidx >= 0;
+        vidx = vidx[mask]
+        eidx = eidx[mask]
 
         ivec.append(vidx); jvec.append(eidx)
 
@@ -764,9 +809,9 @@ def dual_lsqr_fxyz(mesh):
         zmul+= Rinv[2, 2, :] * matR[2, edge, :]
         zmul/= Rdet
 
-        xnrm.append(xmul[mask])
-        ynrm.append(ymul[mask])
-        znrm.append(zmul[mask])
+        xnrm.append(np.float64(xmul[mask]))
+        ynrm.append(np.float64(ymul[mask]))
+        znrm.append(np.float64(zmul[mask]))
         
         xmul = Sinv[0, 0, :] * matS[0, edge, :]
         xmul+= Sinv[0, 1, :] * matS[1, edge, :]
@@ -783,26 +828,35 @@ def dual_lsqr_fxyz(mesh):
         zmul+= Sinv[2, 2, :] * matS[2, edge, :]
         zmul/= Sdet
 
-        xprp.append(xmul[mask])
-        yprp.append(ymul[mask])
-        zprp.append(zmul[mask])
+        xprp.append(np.float64(xmul[mask]))
+        yprp.append(np.float64(ymul[mask]))
+        zprp.append(np.float64(zmul[mask]))
         
-    ivec = np.concatenate(ivec)
-    jvec = np.concatenate(jvec)
+    ivec = np.asarray(
+        np.concatenate(ivec), dtype=np.int32)
+    jvec = np.asarray(
+        np.concatenate(jvec), dtype=np.int32)
     
     xnrm = np.concatenate(xnrm)
     ynrm = np.concatenate(ynrm)
     znrm = np.concatenate(znrm)
+        
     xprp = np.concatenate(xprp)
     yprp = np.concatenate(yprp)
     zprp = np.concatenate(zprp)
 
-    return csr_matrix((xnrm, (ivec, jvec))), \
-           csr_matrix((ynrm, (ivec, jvec))), \
-           csr_matrix((znrm, (ivec, jvec))), \
-           csr_matrix((xprp, (ivec, jvec))), \
-           csr_matrix((yprp, (ivec, jvec))), \
-           csr_matrix((zprp, (ivec, jvec)))
+    return csr_matrix((xnrm, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size)), \
+           csr_matrix((ynrm, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size)), \
+           csr_matrix((znrm, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size)), \
+           csr_matrix((xprp, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size)), \
+           csr_matrix((yprp, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size)), \
+           csr_matrix((zprp, (ivec, jvec)), 
+        shape=(mesh.vert.size, mesh.edge.size))
 
 
 def cell_lsqr_mats(mesh):
@@ -814,10 +868,15 @@ def cell_lsqr_mats(mesh):
         mesh.edge.ynrm, mesh.edge.znrm)).T
 
     cnrm = np.vstack((
-        mesh.cell.xmid,
-        mesh.cell.ymid, mesh.cell.zmid)).T
+        mesh.cell.xpos,
+        mesh.cell.ypos, mesh.cell.zpos)).T
     
-    cnrm = cnrm / mesh.rsph
+    if (mesh.rsph is not None):
+        cnrm = cnrm / mesh.rsph
+    else:
+        cnrm = np.zeros(
+        (mesh.cell.size, 3), dtype=np.float64)
+        cnrm[:, 2] = np.float64(1)
        
     Amat = np.zeros(
         (np.max(mesh.cell.topo) + 1, 3, 
@@ -827,6 +886,9 @@ def cell_lsqr_mats(mesh):
         (np.max(mesh.cell.topo) + 1,
          np.max(mesh.cell.topo) + 1,
          mesh.cell.size), dtype=np.float64)
+         
+    wval = mesh.edge.area.copy().T
+    wval[mesh.edge.mask] *= 2.0  # bnd edges
 
     for edge in range(np.max(mesh.cell.topo) + 1):
 
@@ -836,15 +898,21 @@ def cell_lsqr_mats(mesh):
 
         mask = mesh.cell.topo > edge
 
+        cidx = np.argwhere(mask).ravel()
+
         eidx = mesh.cell.edge[mask, edge] - 1
+        
+        have = eidx >= 0;
+        mask[cidx[np.logical_not(have)]] = False
+        eidx = eidx[have]
 
-        area = mesh.edge.area[eidx].T
-
-        Wmat[edge, edge, mask] = area
+        Wmat[edge, edge, mask] = wval[eidx]
 
         Amat[edge,    :, mask] = edir[eidx]
     
     Amat[-1, :, :] = np.transpose(cnrm)
+    
+    del edir; del cnrm
 
     matA = np.transpose(Amat, axes=(1, 0, 2))
 
@@ -876,6 +944,11 @@ def cell_lsqr_fxyz(mesh):
         cidx = np.argwhere(mask).ravel()
 
         eidx = mesh.cell.edge[mask, edge] - 1
+        
+        have = eidx >= 0;
+        mask[cidx[np.logical_not(have)]] = False
+        cidx = cidx[have]
+        eidx = eidx[have]
 
         ivec.append(cidx); jvec.append(eidx)
 
@@ -894,20 +967,25 @@ def cell_lsqr_fxyz(mesh):
         zmul+= Rinv[2, 2, :] * matR[2, edge, :]
         zmul/= Rdet
 
-        xnrm.append(xmul[mask])
-        ynrm.append(ymul[mask])
-        znrm.append(zmul[mask])
+        xnrm.append(np.float64(xmul[mask]))
+        ynrm.append(np.float64(ymul[mask]))
+        znrm.append(np.float64(zmul[mask]))
         
-    ivec = np.concatenate(ivec)
-    jvec = np.concatenate(jvec)
+    ivec = np.asarray(
+        np.concatenate(ivec), dtype=np.int32)
+    jvec = np.asarray(
+        np.concatenate(jvec), dtype=np.int32)
     
     xnrm = np.concatenate(xnrm)
     ynrm = np.concatenate(ynrm)
     znrm = np.concatenate(znrm)
 
-    return csr_matrix((xnrm, (ivec, jvec))), \
-           csr_matrix((ynrm, (ivec, jvec))), \
-           csr_matrix((znrm, (ivec, jvec)))
+    return csr_matrix((xnrm, (ivec, jvec)), 
+        shape=(mesh.cell.size, mesh.edge.size)), \
+           csr_matrix((ynrm, (ivec, jvec)), 
+        shape=(mesh.cell.size, mesh.edge.size)), \
+           csr_matrix((znrm, (ivec, jvec)), 
+        shape=(mesh.cell.size, mesh.edge.size))
 
 
 def edge_lsqr_mats(mesh):
@@ -926,7 +1004,8 @@ def edge_lsqr_mats(mesh):
         mesh.edge.xpos,
         mesh.edge.ypos, mesh.edge.zpos)).T
     
-    enrm = enrm / mesh.rsph
+    if (mesh.rsph is not None):
+        enrm = enrm / mesh.rsph
 
     Amat = np.zeros(
         (np.max(mesh.edge.topo) + 1, 3,
@@ -941,25 +1020,34 @@ def edge_lsqr_mats(mesh):
          np.max(mesh.edge.topo) + 1, 
          mesh.edge.size), dtype=np.float64)
 
+    wval = mesh.edge.area.copy().T
+    wval[mesh.edge.mask] *= 2.0  # bnd edges
+
     for edge in range(np.max(mesh.edge.topo) + 1):
 
-        Wmat[edge, edge, :] = mesh.edge.area.T
+        Wmat[edge, edge, :] = wval
 
     for edge in range(np.max(mesh.edge.topo) + 0):
 
         mask = mesh.edge.topo > edge
 
+        enum = np.argwhere(mask).ravel()
+
         eidx = mesh.edge.edge[mask, edge] - 1
 
-        area = mesh.edge.area[eidx].T
+        have = eidx >= 0;
+        mask[enum[np.logical_not(have)]] = False
+        eidx = eidx[have]
 
-        Wmat[edge, edge, mask] = area
+        Wmat[edge, edge, mask] = wval[eidx]
 
         Amat[edge,    :, mask] = ndir[eidx]
         Bmat[edge,    :, mask] = pdir[eidx]
     
     Amat[-1, :, :] = np.transpose(enrm)
     Bmat[-1, :, :] = np.transpose(enrm)
+    
+    del ndir; del pdir; del enrm
     
     matA = np.transpose(Amat, axes=(1, 0, 2))
     matB = np.transpose(Bmat, axes=(1, 0, 2))
@@ -998,7 +1086,12 @@ def edge_lsqr_fxyz(mesh):
         enum = np.argwhere(mask).ravel()
 
         eidx = mesh.edge.edge[mask, edge] - 1
-
+        
+        have = eidx >= 0;
+        mask[enum[np.logical_not(have)]] = False
+        enum = enum[have]
+        eidx = eidx[have]
+        
         ivec.append(enum); jvec.append(eidx)
 
         xmul = Rinv[0, 0, :] * matR[0, edge, :]
@@ -1016,20 +1109,25 @@ def edge_lsqr_fxyz(mesh):
         zmul+= Rinv[2, 2, :] * matR[2, edge, :]
         zmul/= Rdet
 
-        xnrm.append(xmul[mask])
-        ynrm.append(ymul[mask])
-        znrm.append(zmul[mask])
+        xnrm.append(np.float64(xmul[mask]))
+        ynrm.append(np.float64(ymul[mask]))
+        znrm.append(np.float64(zmul[mask]))
 
-    ivec = np.concatenate(ivec)
-    jvec = np.concatenate(jvec)
+    ivec = np.asarray(
+        np.concatenate(ivec), dtype=np.int32)
+    jvec = np.asarray(
+        np.concatenate(jvec), dtype=np.int32)
     
     xnrm = np.concatenate(xnrm)
     ynrm = np.concatenate(ynrm)
     znrm = np.concatenate(znrm)
 
-    return csr_matrix((xnrm, (ivec, jvec))), \
-           csr_matrix((ynrm, (ivec, jvec))), \
-           csr_matrix((znrm, (ivec, jvec)))
+    return csr_matrix((xnrm, (ivec, jvec)), 
+        shape=(mesh.edge.size, mesh.edge.size)), \
+           csr_matrix((ynrm, (ivec, jvec)), 
+        shape=(mesh.edge.size, mesh.edge.size)), \
+           csr_matrix((znrm, (ivec, jvec)), 
+        shape=(mesh.edge.size, mesh.edge.size))
 
 
 def edge_lsqr_perp(mesh, trsk):
@@ -1077,14 +1175,20 @@ def edge_dual_reco(mesh, trsk):
 #-- with gradients estimated using "2-ring" stencil on duals.
 
     vrt1 = mesh.edge.vert[:, 0] - 1
-    xev1 = mesh.edge.xpos - mesh.vert.xmid[vrt1]
-    yev1 = mesh.edge.ypos - mesh.vert.ymid[vrt1]
-    zev1 = mesh.edge.zpos - mesh.vert.zmid[vrt1]
+    #xev1 = mesh.edge.xpos - mesh.vert.xmid[vrt1]
+    #yev1 = mesh.edge.ypos - mesh.vert.ymid[vrt1]
+    #zev1 = mesh.edge.zpos - mesh.vert.zmid[vrt1]
+    xev1 = mesh.edge.xpos - mesh.vert.xpos[vrt1]
+    yev1 = mesh.edge.ypos - mesh.vert.ypos[vrt1]
+    zev1 = mesh.edge.zpos - mesh.vert.zpos[vrt1]
 
     vrt2 = mesh.edge.vert[:, 1] - 1
-    xev2 = mesh.edge.xpos - mesh.vert.xmid[vrt2]
-    yev2 = mesh.edge.ypos - mesh.vert.ymid[vrt2]
-    zev2 = mesh.edge.zpos - mesh.vert.zmid[vrt2]
+    #xev2 = mesh.edge.xpos - mesh.vert.xmid[vrt2]
+    #yev2 = mesh.edge.ypos - mesh.vert.ymid[vrt2]
+    #zev2 = mesh.edge.zpos - mesh.vert.zmid[vrt2]
+    xev2 = mesh.edge.xpos - mesh.vert.xpos[vrt2]
+    yev2 = mesh.edge.ypos - mesh.vert.ypos[vrt2]
+    zev2 = mesh.edge.zpos - mesh.vert.zpos[vrt2]
 
     eidx = np.arange(0, mesh.edge.size)
 
@@ -1117,14 +1221,20 @@ def edge_cell_reco(mesh, trsk):
 #-- with gradients estimated using "2-ring" stencil on cells.
 
     cel1 = mesh.edge.cell[:, 0] - 1
-    xec1 = mesh.edge.xpos - mesh.cell.xmid[cel1]
-    yec1 = mesh.edge.ypos - mesh.cell.ymid[cel1]
-    zec1 = mesh.edge.zpos - mesh.cell.zmid[cel1]
+    #xec1 = mesh.edge.xpos - mesh.cell.xmid[cel1]
+    #yec1 = mesh.edge.ypos - mesh.cell.ymid[cel1]
+    #zec1 = mesh.edge.zpos - mesh.cell.zmid[cel1]
+    xec1 = mesh.edge.xpos - mesh.cell.xpos[cel1]
+    yec1 = mesh.edge.ypos - mesh.cell.ypos[cel1]
+    zec1 = mesh.edge.zpos - mesh.cell.zpos[cel1]
 
     cel2 = mesh.edge.cell[:, 1] - 1
-    xec2 = mesh.edge.xpos - mesh.cell.xmid[cel2]
-    yec2 = mesh.edge.ypos - mesh.cell.ymid[cel2]
-    zec2 = mesh.edge.zpos - mesh.cell.zmid[cel2]
+    #xec2 = mesh.edge.xpos - mesh.cell.xmid[cel2]
+    #yec2 = mesh.edge.ypos - mesh.cell.ymid[cel2]
+    #zec2 = mesh.edge.zpos - mesh.cell.zmid[cel2]
+    xec2 = mesh.edge.xpos - mesh.cell.xpos[cel2]
+    yec2 = mesh.edge.ypos - mesh.cell.ypos[cel2]
+    zec2 = mesh.edge.zpos - mesh.cell.zpos[cel2]
 
     eidx = np.arange(0, mesh.edge.size)
 

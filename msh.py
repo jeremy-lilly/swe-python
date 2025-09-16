@@ -11,7 +11,9 @@ def load_mesh(name, rsph=None):
     local mesh data structure.
 
     """
-    # Authors: Darren Engwirda, Sara Calandrini
+    # Authors: Darren Engwirda,
+    #          Sara Calandrini,
+    #          Jeremy Lilly
 
     class base: pass
 
@@ -66,6 +68,7 @@ def load_mesh(name, rsph=None):
 
     mesh.vert = base()
     mesh.vert.size = int(data.dimensions["nVertices"].size)
+    mesh.vert.degr = int(data.dimensions["vertexDegree"].size)
     mesh.vert.xpos = np.array(data.variables["xVertex"]) * scal
     mesh.vert.ypos = np.array(data.variables["yVertex"]) * scal
     mesh.vert.zpos = np.array(data.variables["zVertex"]) * scal
@@ -80,46 +83,25 @@ def load_mesh(name, rsph=None):
     mesh.vert.cell = \
         np.array(data.variables["cellsOnVertex"])
 
+    # masking at boundaries of mesh; edges/duals via cells
+    mesh.cell.mask = np.full(
+        (mesh.cell.size), False, dtype=bool)
+    mesh.edge.mask = np.full(
+        (mesh.edge.size), False, dtype=bool)
+    mesh.edge.mask[np.logical_or.reduce((
+        mesh.edge.cell[:, 0] <= 0,
+        mesh.edge.cell[:, 1] <= 0))] = True
+    mesh.vert.mask = np.full(
+        (mesh.vert.size), False, dtype=bool)
+    mesh.vert.mask[np.logical_or.reduce((
+        mesh.vert.cell[:, 0] <= 0,
+        mesh.vert.cell[:, 1] <= 0,
+        mesh.vert.cell[:, 2] <= 0))] = True
 
-    xhat = (
-        mesh.vert.xpos[mesh.edge.vert[:, 1] - 1] -
-        mesh.vert.xpos[mesh.edge.vert[:, 0] - 1]
-    )
-    yhat = (
-        mesh.vert.ypos[mesh.edge.vert[:, 1] - 1] -
-        mesh.vert.ypos[mesh.edge.vert[:, 0] - 1]
-    )
-    zhat = (
-        mesh.vert.zpos[mesh.edge.vert[:, 1] - 1] -
-        mesh.vert.zpos[mesh.edge.vert[:, 0] - 1]
-    )
-
-    lhat = np.sqrt(xhat ** 2 + yhat ** 2 + zhat ** 2)
-    
-    mesh.edge.xprp = xhat / lhat
-    mesh.edge.yprp = yhat / lhat
-    mesh.edge.zprp = zhat / lhat
-
-
-    xhat = (
-        mesh.cell.xpos[mesh.edge.cell[:, 1] - 1] -
-        mesh.cell.xpos[mesh.edge.cell[:, 0] - 1]
-    )
-    yhat = (
-        mesh.cell.ypos[mesh.edge.cell[:, 1] - 1] -
-        mesh.cell.ypos[mesh.edge.cell[:, 0] - 1]
-    )
-    zhat = (
-        mesh.cell.zpos[mesh.edge.cell[:, 1] - 1] -
-        mesh.cell.zpos[mesh.edge.cell[:, 0] - 1]
-    )
-
-    lhat = np.sqrt(xhat ** 2 + yhat ** 2 + zhat ** 2)
-    
-    mesh.edge.xnrm = xhat / lhat
-    mesh.edge.ynrm = yhat / lhat
-    mesh.edge.znrm = zhat / lhat
-
+    # compute the areas, normals and intersection of cells
+    mesh.edge.xprp, mesh.edge.yprp, mesh.edge.zprp, \
+    mesh.edge.xnrm, mesh.edge.ynrm, mesh.edge.znrm= \
+        mesh_vecs(mesh)
 
     mesh.cell.xmid = \
         cell_quad(mesh, mesh.cell.xpos, mesh.vert.xpos)
@@ -144,24 +126,32 @@ def load_mesh(name, rsph=None):
         mesh, mesh.edge.xmid, mesh.edge.ymid, mesh.edge.zmid)
 
     mesh.vert.xmid = \
-        dual_quad(mesh, mesh.cell.xpos, mesh.vert.xpos)
+        dual_quad(mesh, mesh.cell.xpos, mesh.vert.xpos, mesh.edge.xpos)
     mesh.vert.ymid = \
-        dual_quad(mesh, mesh.cell.ypos, mesh.vert.ypos)
+        dual_quad(mesh, mesh.cell.ypos, mesh.vert.ypos, mesh.edge.ypos)
     mesh.vert.zmid = \
-        dual_quad(mesh, mesh.cell.zpos, mesh.vert.zpos)
+        dual_quad(mesh, mesh.cell.zpos, mesh.vert.zpos, mesh.edge.zpos)
 
     mesh.vert.xmid, mesh.vert.ymid, mesh.vert.zmid, \
     mesh.vert.mlon, mesh.vert.mlat = to_sphere(
         mesh, mesh.vert.xmid, mesh.vert.ymid, mesh.vert.zmid)
 
-    mesh.cell.area = cell_area (mesh)
-    mesh.edge.area = edge_area (mesh)
-    mesh.vert.area = dual_area (mesh)
-
-    mesh.vert.kite = mesh_kite (mesh)
     mesh.edge.stub = mesh_stub (mesh)
     mesh.edge.wing = mesh_wing (mesh)
-    
+    mesh.edge.area = np.sum(mesh.edge.wing, axis=1)
+
+    if mesh.vert.degr == 4:
+        mesh.cell.area = \
+            np.array(data.variables["areaCell"]) * scal ** 2
+        mesh.vert.area = \
+            np.array(data.variables["areaTriangle"]) * scal ** 2
+        mesh.vert.kite = \
+            np.array(data.variables["kiteAreasOnVertex"]) * scal ** 2
+    else:
+        mesh.cell.area = cell_area (mesh)
+        mesh.vert.area = dual_area (mesh)
+        mesh.vert.kite = mesh_kite (mesh)
+        
     mesh.edge.vlen, \
     mesh.edge.dlen = mesh_arcs (mesh)
 
@@ -180,139 +170,187 @@ def mesh_kite(mesh):
 
 #-- cell-dual overlapping areas
 
-    kite = np.zeros((mesh.vert.size, 3), dtype=np.float64)
-    kite[:, 0]+= tria_area(
+    kite = np.zeros((mesh.vert.size, mesh.vert.degr), dtype=np.float64)
+     
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 0] >= 1,
+                                  mesh.vert.edge[:, 1] >= 1))
+    kite[mask, 0]+= tria_area(
         mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 0] - 1])).T,
+            mesh.cell.xlon[mesh.vert.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 0] - 1])).T,
         np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 1] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 1] - 1])).T
-    )
-    kite[:, 0]+= tria_area(
-        mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
-        np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 0] - 1])).T,
-        np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 0] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 0] - 1])).T
+            mesh.edge.xlon[mesh.vert.edge[mask, 1] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 1] - 1])).T
     )
 
-    kite[:, 1]+= tria_area(
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 0] >= 1,
+                                  mesh.vert.edge[:, 0] >= 1))
+    kite[mask, 0]+= tria_area(
         mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 1] - 1])).T,
+            mesh.cell.xlon[mesh.vert.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 0] - 1])).T,
         np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 2] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 2] - 1])).T
-    )
-    kite[:, 1]+= tria_area(
-        mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
-        np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 1] - 1])).T,
-        np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 1] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 1] - 1])).T
+            mesh.edge.xlon[mesh.vert.edge[mask, 0] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 0] - 1])).T
     )
 
-    kite[:, 2]+= tria_area(
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 1] >= 1,
+                                  mesh.vert.edge[:, 2] >= 1))
+    kite[mask, 1]+= tria_area(
         mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 2] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 2] - 1])).T,
+            mesh.cell.xlon[mesh.vert.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 1] - 1])).T,
         np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 0] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 0] - 1])).T
+            mesh.edge.xlon[mesh.vert.edge[mask, 2] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 2] - 1])).T
     )
-    kite[:, 2]+= tria_area(
+    
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 1] >= 1,
+                                  mesh.vert.edge[:, 1] >= 1))
+    kite[mask, 1]+= tria_area(
         mesh.rsph,
-        np.vstack((mesh.vert.xlon, mesh.vert.ylat)).T,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.vert.cell[:, 2] - 1],
-            mesh.cell.ylat[mesh.vert.cell[:, 2] - 1])).T,
+            mesh.cell.xlon[mesh.vert.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 1] - 1])).T,
         np.vstack((
-            mesh.edge.xlon[mesh.vert.edge[:, 2] - 1],
-            mesh.edge.ylat[mesh.vert.edge[:, 2] - 1])).T
+            mesh.edge.xlon[mesh.vert.edge[mask, 1] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 1] - 1])).T
+    )
+
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 2] >= 1,
+                                  mesh.vert.edge[:, 0] >= 1))
+    kite[mask, 2]+= tria_area(
+        mesh.rsph,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
+        np.vstack((
+            mesh.cell.xlon[mesh.vert.cell[mask, 2] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 2] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mesh.vert.edge[mask, 0] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 0] - 1])).T
+    )
+
+    mask = np.logical_and.reduce((mesh.vert.cell[:, 2] >= 1,
+                                  mesh.vert.edge[:, 2] >= 1))
+    kite[mask, 2]+= tria_area(
+        mesh.rsph,
+        np.vstack((mesh.vert.xlon[mask], mesh.vert.ylat[mask])).T,
+        np.vstack((
+            mesh.cell.xlon[mesh.vert.cell[mask, 2] - 1],
+            mesh.cell.ylat[mesh.vert.cell[mask, 2] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mesh.vert.edge[mask, 2] - 1],
+            mesh.edge.ylat[mesh.vert.edge[mask, 2] - 1])).T
     )
 
     return kite
     
-    
+
 def mesh_stub(mesh):
 
 #-- edge-dual overlapping areas
 
-    stub = np.zeros((mesh.edge.size, 2), dtype=np.float64)
-    stub[:, 0] = tria_area(
+    tail = np.zeros((mesh.edge.size, 2), dtype=np.float64)
+    
+    mask = mesh.edge.cell[:, 0] >= 1
+    tail[mask, 0]+= tria_area(
         mesh.rsph,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 0] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 0] - 1])).T,
+            mesh.vert.xlon[mesh.edge.vert[mask, 0] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 0] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 1] - 1])).T,
+            mesh.cell.xlon[mesh.edge.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 0] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 0] - 1])).T
+            mesh.edge.xlon[mask], mesh.edge.ylat[mask])).T
     )
-    stub[:, 1] = tria_area(
+    
+    mask = mesh.edge.cell[:, 1] >= 1
+    tail[mask, 0]+= tria_area(
         mesh.rsph,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 1] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 1] - 1])).T,
+            mesh.vert.xlon[mesh.edge.vert[mask, 0] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 0] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 0] - 1])).T,
+            mesh.cell.xlon[mesh.edge.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 1] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 1] - 1])).T
+            mesh.edge.xlon[mask], mesh.edge.ylat[mask])).T
+    )
+    
+    mask = mesh.edge.cell[:, 0] >= 1
+    tail[mask, 1]+= tria_area(
+        mesh.rsph,
+        np.vstack((
+            mesh.vert.xlon[mesh.edge.vert[mask, 1] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 1] - 1])).T,
+        np.vstack((
+            mesh.cell.xlon[mesh.edge.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 0] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mask], mesh.edge.ylat[mask])).T
+    )
+    
+    mask = mesh.edge.cell[:, 1] >= 1
+    tail[mask, 1]+= tria_area(
+        mesh.rsph,
+        np.vstack((
+            mesh.vert.xlon[mesh.edge.vert[mask, 1] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 1] - 1])).T,
+        np.vstack((
+            mesh.cell.xlon[mesh.edge.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 1] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mask], mesh.edge.ylat[mask])).T
     )
 
-    return stub
-    
-    
+    return tail
+
+
 def mesh_wing(mesh):
 
 #-- edge-cell overlapping areas
 
     wing = np.zeros((mesh.edge.size, 2), dtype=np.float64)
-    wing[:, 0] = tria_area(
+
+    mask = mesh.edge.cell[:, 0] >= 1
+    wing[mask, 0] = tria_area(
         mesh.rsph,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 1] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 1] - 1])).T,
+            mesh.vert.xlon[mesh.edge.vert[mask, 1] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 1] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 0] - 1])).T,
+            mesh.cell.xlon[mesh.edge.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 0] - 1])).T,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 0] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 0] - 1])).T
+            mesh.vert.xlon[mesh.edge.vert[mask, 0] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 0] - 1])).T
     )
-    wing[:, 1] = tria_area(
+
+    mask = mesh.edge.cell[:, 1] >= 1
+    wing[mask, 1] = tria_area(
         mesh.rsph,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 0] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 0] - 1])).T,
+            mesh.vert.xlon[mesh.edge.vert[mask, 0] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 0] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 1] - 1])).T,
+            mesh.cell.xlon[mesh.edge.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 1] - 1])).T,
         np.vstack((
-            mesh.vert.xlon[mesh.edge.vert[:, 1] - 1],
-            mesh.vert.ylat[mesh.edge.vert[:, 1] - 1])).T
+            mesh.vert.xlon[mesh.edge.vert[mask, 1] - 1],
+            mesh.vert.ylat[mesh.edge.vert[mask, 1] - 1])).T
     )
 
     return wing
     
-    
+
 def mesh_arcs(mesh):
 
 #-- arc-lengths: vert and cells
@@ -326,15 +364,42 @@ def mesh_arcs(mesh):
             mesh.vert.xlon[mesh.edge.vert[:, 1] - 1],
             mesh.vert.ylat[mesh.edge.vert[:, 1] - 1])).T
     )
-        
-    dlen = circ_dist(
+    
+    dlen = np.zeros(mesh.edge.size)
+
+    mask = np.all(mesh.edge.cell > 0, axis=1)
+    dlen[mask] = circ_dist(
         mesh.rsph, 
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 0] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 0] - 1])).T,
+            mesh.cell.xlon[mesh.edge.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 0] - 1])).T,
         np.vstack((
-            mesh.cell.xlon[mesh.edge.cell[:, 1] - 1],
-            mesh.cell.ylat[mesh.edge.cell[:, 1] - 1])).T
+            mesh.cell.xlon[mesh.edge.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 1] - 1])).T
+    )
+
+    mask = np.logical_and(mesh.edge.cell[:, 0] > 0,
+                          mesh.edge.cell[:, 1] == 0)
+    dlen[mask] = circ_dist(
+        mesh.rsph, 
+        np.vstack((
+            mesh.cell.xlon[mesh.edge.cell[mask, 0] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 0] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mask],
+            mesh.edge.ylat[mask])).T
+    )
+
+    mask = np.logical_and(mesh.edge.cell[:, 0] == 0,
+                          mesh.edge.cell[:, 1] > 0)
+    dlen[mask] = circ_dist(
+        mesh.rsph, 
+        np.vstack((
+            mesh.cell.xlon[mesh.edge.cell[mask, 1] - 1],
+            mesh.cell.ylat[mesh.edge.cell[mask, 1] - 1])).T,
+        np.vstack((
+            mesh.edge.xlon[mask],
+            mesh.edge.ylat[mask])).T
     )
 
     return vlen, dlen
@@ -392,6 +457,7 @@ def sort_mesh(mesh, sort=None):
     mesh.cell.edge = mesh.cell.edge[mesh.cell.ifwd - 1]
     mesh.cell.cell = mesh.cell.cell[mesh.cell.ifwd - 1]
     mesh.cell.topo = mesh.cell.topo[mesh.cell.ifwd - 1]
+    mesh.cell.mask = mesh.cell.mask[mesh.cell.ifwd - 1]
 
 #-- 2. sort duals via pseudo-linear cell-wise ordering
 
@@ -427,6 +493,7 @@ def sort_mesh(mesh, sort=None):
     mesh.vert.kite = mesh.vert.kite[mesh.vert.ifwd - 1]
     mesh.vert.edge = mesh.vert.edge[mesh.vert.ifwd - 1]
     mesh.vert.cell = mesh.vert.cell[mesh.vert.ifwd - 1]
+    mesh.vert.mask = mesh.vert.mask[mesh.vert.ifwd - 1]
 
 #-- 3. sort edges via pseudo-linear cell-wise ordering
 
@@ -480,6 +547,7 @@ def sort_mesh(mesh, sort=None):
     mesh.edge.cell = mesh.edge.cell[mesh.edge.ifwd - 1]
     mesh.edge.edge = mesh.edge.edge[mesh.edge.ifwd - 1]
     mesh.edge.topo = mesh.edge.topo[mesh.edge.ifwd - 1]
+    mesh.edge.mask = mesh.edge.mask[mesh.edge.ifwd - 1]
 
     return mesh
 
@@ -622,7 +690,7 @@ def cell_ladj(mesh):
 
     for edge in range(np.max(mesh.cell.topo)):
 
-        mask = mesh.cell.topo > edge
+        mask = mesh.cell.cell[:, edge] > 0
 
         cidx = np.argwhere(mask).ravel()
 
@@ -789,18 +857,22 @@ def edge_quad(mesh, fcel, fvrt):
         icel = mesh.edge.cell[eidx, 0] - 1
         jcel = mesh.edge.cell[eidx, 1] - 1
 
-        atri = tria_area(
-            rsph, pvrt[ivrt], pcel[icel], pcel[jcel])
-
-        ftri = (fvrt[ivrt] + fcel[icel] + fcel[jcel])
+        mask = icel >= 0
+        atri = np.zeros(mesh.edge.size, dtype=np.float64)
+        atri[mask] = tria_area(
+                rsph, pvrt[ivrt[mask]], pvrt[jvrt[mask]], pcel[icel[mask]])
+        
+        ftri = (fvrt[ivrt] + fvrt[jvrt] + fcel[icel])
 
         abar[eidx] += atri
         fbar[eidx] += atri * ftri / 3.0
 
-        atri = tria_area(
-            rsph, pvrt[jvrt], pcel[jcel], pcel[icel])
-
-        ftri = (fvrt[jvrt] + fcel[jcel] + fcel[icel])
+        mask = jcel >= 0
+        atri = np.zeros(mesh.edge.size, dtype=np.float64)
+        atri[mask] = tria_area(
+                rsph, pvrt[ivrt[mask]], pvrt[jvrt[mask]], pcel[jcel[mask]])
+        
+        ftri = (fvrt[ivrt] + fvrt[jvrt] + fcel[jcel])
 
         abar[eidx] += atri
         fbar[eidx] += atri * ftri / 3.0
@@ -836,31 +908,53 @@ def dual_area(mesh):
     return abar
 
 
-def dual_quad(mesh, fcel, fvrt):
+def dual_quad(mesh, fcel, fvrt, fedg):
 
     pcel = np.vstack(
         (mesh.cell.xlon, mesh.cell.ylat)).T
     pvrt = np.vstack(
         (mesh.vert.xlon, mesh.vert.ylat)).T
+    pedg = np.vstack(
+        (mesh.edge.xlon, mesh.edge.ylat)).T
 
     abar = np.zeros(mesh.vert.size, dtype=np.float64)
     fbar = np.zeros(mesh.vert.size, dtype=np.float64)
 
     rsph = mesh.rsph
 
-    for epos in range(3):
+    for epos in range(mesh.vert.degr):
 
         vidx = np.arange(0, mesh.vert.size)
 
         ifac = mesh.vert.edge[vidx, epos] - 1
+        mask = ifac >= 0
 
         icel = mesh.edge.cell[ifac, 0] - 1
         jcel = mesh.edge.cell[ifac, 1] - 1
 
-        atri = tria_area(
-            rsph, pvrt[vidx], pcel[icel], pcel[jcel])
+        imask = icel >= 0
+        jmask = jcel >= 0
 
-        ftri = (fvrt[vidx] + fcel[icel] + fcel[jcel])
+        atri = np.zeros(mesh.vert.size, dtype=np.float64)
+        ftri = np.zeros(mesh.vert.size, dtype=np.float64)
+
+        # normal triangle, both i and j are good
+        mask = np.logical_and(imask, jmask)
+        atri[mask] = tria_area(
+            rsph, pvrt[vidx[mask]], pcel[icel[mask]], pcel[jcel[mask]])
+        ftri[mask] = (fvrt[vidx[mask]] + fcel[icel[mask]] + fcel[jcel[mask]])
+
+        # boundary triangle, i is good, j is not
+        mask = np.logical_and(imask, np.logical_not(jmask))
+        atri[mask] = tria_area(
+            rsph, pvrt[vidx[mask]], pcel[icel[mask]], pedg[ifac[mask]])
+        ftri[mask] = (fvrt[vidx[mask]] + fcel[icel[mask]] + fedg[ifac[mask]])
+
+        # boundary triangle, j is good, i is not
+        mask = np.logical_and(np.logical_not(imask), jmask)
+        atri[mask] = tria_area(
+            rsph, pvrt[vidx[mask]], pedg[ifac[mask]], pcel[jcel[mask]])
+        ftri[mask] = (fvrt[vidx[mask]] + fedg[ifac[mask]] + fcel[jcel[mask]])
 
         abar[vidx] += atri
         fbar[vidx] += atri * ftri / 3.0
@@ -925,3 +1019,95 @@ def to_sphere(mesh, xpos, ypos, zpos):
     xlon = np.arctan2(yrad, xrad)
 
     return xprj, yprj, zprj, xlon, ylat
+
+
+def mesh_vecs(mesh):
+
+#-- edge vectors: norm and perp
+
+    xhat = np.zeros(mesh.edge.size, dtype=np.float64)
+    yhat = np.zeros(mesh.edge.size, dtype=np.float64)
+    zhat = np.zeros(mesh.edge.size, dtype=np.float64)
+
+    mask = np.logical_and.reduce((mesh.edge.vert[:, 0] >= 1,
+                                  mesh.edge.vert[:, 1] >= 1))
+
+    xhat[mask] = (
+        mesh.vert.xpos[mesh.edge.vert[mask, 1] - 1] -
+        mesh.vert.xpos[mesh.edge.vert[mask, 0] - 1]
+    )
+    yhat[mask] = (
+        mesh.vert.ypos[mesh.edge.vert[mask, 1] - 1] -
+        mesh.vert.ypos[mesh.edge.vert[mask, 0] - 1]
+    )
+    zhat[mask] = (
+        mesh.vert.zpos[mesh.edge.vert[mask, 1] - 1] -
+        mesh.vert.zpos[mesh.edge.vert[mask, 0] - 1]
+    )
+
+    lhat = np.sqrt(xhat ** 2 + yhat ** 2 + zhat ** 2)
+    
+    xprp = np.asarray (xhat / lhat, dtype=np.float64)
+    yprp = np.asarray (yhat / lhat, dtype=np.float64)
+    zprp = np.asarray (zhat / lhat, dtype=np.float64)
+
+    xhat = np.zeros(mesh.edge.size, dtype=np.float64)
+    yhat = np.zeros(mesh.edge.size, dtype=np.float64)
+    zhat = np.zeros(mesh.edge.size, dtype=np.float64)
+
+    mask = np.logical_and.reduce((mesh.edge.cell[:, 0] >= 1,
+                                  mesh.edge.cell[:, 1] >= 1))
+        
+    xhat[mask] = (
+        mesh.cell.xpos[mesh.edge.cell[mask, 1] - 1] -
+        mesh.cell.xpos[mesh.edge.cell[mask, 0] - 1]
+    )
+    yhat[mask] = (
+        mesh.cell.ypos[mesh.edge.cell[mask, 1] - 1] -
+        mesh.cell.ypos[mesh.edge.cell[mask, 0] - 1]
+    )
+    zhat[mask] = (
+        mesh.cell.zpos[mesh.edge.cell[mask, 1] - 1] -
+        mesh.cell.zpos[mesh.edge.cell[mask, 0] - 1]
+    )
+    
+    mask = np.logical_and.reduce((mesh.edge.cell[:, 0] <= 0,
+                                  mesh.edge.cell[:, 1] >= 1))
+
+    xhat[mask] = (
+        mesh.edge.xpos[mask] - 
+        mesh.cell.xpos[mesh.edge.cell[mask, 1] - 1]
+    )
+    yhat[mask] = (
+        mesh.edge.ypos[mask] - 
+        mesh.cell.ypos[mesh.edge.cell[mask, 1] - 1]
+    )
+    zhat[mask] = (
+        mesh.edge.zpos[mask] - 
+        mesh.cell.zpos[mesh.edge.cell[mask, 1] - 1]
+    )
+    
+    mask = np.logical_and.reduce((mesh.edge.cell[:, 0] >= 1,
+                                  mesh.edge.cell[:, 1] <= 0))
+    
+    xhat[mask] = (
+        mesh.edge.xpos[mask] -
+        mesh.cell.xpos[mesh.edge.cell[mask, 0] - 1]
+    )
+    yhat[mask] = (
+        mesh.edge.ypos[mask] -
+        mesh.cell.ypos[mesh.edge.cell[mask, 0] - 1]
+    )
+    zhat[mask] = (
+        mesh.edge.zpos[mask] -
+        mesh.cell.zpos[mesh.edge.cell[mask, 0] - 1]
+    )
+    
+    lhat = np.sqrt(xhat ** 2 + yhat ** 2 + zhat ** 2)
+    
+    xnrm = np.asarray (xhat / lhat, dtype=np.float64)
+    ynrm = np.asarray (yhat / lhat, dtype=np.float64)
+    znrm = np.asarray (zhat / lhat, dtype=np.float64)
+
+    return xprp, yprp, zprp, xnrm, ynrm, znrm
+
