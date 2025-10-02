@@ -328,6 +328,9 @@ def init_file(name, cnfg, save, mesh, flow):
     data["edgesOnEdge"][:, :] = mesh.edge.edge
     data.createVariable("nEdgesOnEdge", "i4", ("nEdges"))
     data["nEdgesOnEdge"][:] = mesh.edge.topo
+    if hasattr(mesh.edge, "isrt"):
+        data.createVariable("edgeSortedInds", "i4", ("nEdges"))
+        data["edgeSortedInds"][:] = mesh.edge.isrt
 
     data.createVariable("lonVertex", "f8", ("nVertices"))
     data["lonVertex"][:] = mesh.vert.xlon

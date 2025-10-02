@@ -65,6 +65,9 @@ def load_mesh(name, rsph=None):
         np.array(data.variables["edgesOnEdge"])
     mesh.edge.topo = \
         np.array(data.variables["nEdgesOnEdge"])
+    if "edgeSortedInds" in data.variables.keys():
+        mesh.edge.isrt = \
+                np.array(data.variables["edgeSortedInds"])
 
     mesh.vert = base()
     mesh.vert.size = int(data.dimensions["nVertices"].size)
@@ -422,15 +425,19 @@ def sort_mesh(mesh, sort=None):
 
     if (sort is None): return mesh
 
+
 #-- 1. sort cells via RCM ordering of adjacency matrix
 
-    mesh.cell.ifwd = \
-        reverse_cuthill_mckee(cell_ladj(mesh)) + 1
-    
-    mesh.cell.irev = \
-        np.zeros(mesh.cell.size, dtype=np.int32)
-    mesh.cell.irev[
-        mesh.cell.ifwd - 1] = np.arange(mesh.cell.size) + 1
+    if sort == "tt":
+        pass
+    else:
+        mesh.cell.ifwd = \
+            reverse_cuthill_mckee(cell_ladj(mesh)) + 1
+        
+        mesh.cell.irev = \
+            np.zeros(mesh.cell.size, dtype=np.int32)
+        mesh.cell.irev[
+            mesh.cell.ifwd - 1] = np.arange(mesh.cell.size) + 1
 
     mask = mesh.cell.cell > 0
     mesh.cell.cell[mask] = \
@@ -461,17 +468,20 @@ def sort_mesh(mesh, sort=None):
 
 #-- 2. sort duals via pseudo-linear cell-wise ordering
 
-    mesh.vert.ifwd = np.ravel(mesh.cell.vert)
-    mesh.vert.ifwd = mesh.vert.ifwd[mesh.vert.ifwd > 0]
+    if sort == "tt":
+        pass
+    else:
+        mesh.vert.ifwd = np.ravel(mesh.cell.vert)
+        mesh.vert.ifwd = mesh.vert.ifwd[mesh.vert.ifwd > 0]
 
-    __, imap = np.unique(mesh.vert.ifwd, return_index=True)
+        __, imap = np.unique(mesh.vert.ifwd, return_index=True)
 
-    mesh.vert.ifwd = mesh.vert.ifwd[np.sort(imap)]
+        mesh.vert.ifwd = mesh.vert.ifwd[np.sort(imap)]
 
-    mesh.vert.irev = \
-        np.zeros(mesh.vert.size, dtype=np.int32)
-    mesh.vert.irev[
-        mesh.vert.ifwd - 1] = np.arange(mesh.vert.size) + 1
+        mesh.vert.irev = \
+            np.zeros(mesh.vert.size, dtype=np.int32)
+        mesh.vert.irev[
+            mesh.vert.ifwd - 1] = np.arange(mesh.vert.size) + 1
 
     mask = mesh.cell.vert > 0
     mesh.cell.vert[mask] = \
@@ -497,17 +507,23 @@ def sort_mesh(mesh, sort=None):
 
 #-- 3. sort edges via pseudo-linear cell-wise ordering
 
-    mesh.edge.ifwd = np.ravel(mesh.cell.edge)
-    mesh.edge.ifwd = mesh.edge.ifwd[mesh.edge.ifwd > 0]
+    if sort == "tt":
+        # only need to sort edges
+        mesh.edge.ifwd = np.argsort(mesh.edge.isrt) + 1
+        mesh.edge.irev[
+            mesh.edge.ifwd - 1] = np.arange(mesh.edge.size) + 1
+    else:
+        mesh.edge.ifwd = np.ravel(mesh.cell.edge)
+        mesh.edge.ifwd = mesh.edge.ifwd[mesh.edge.ifwd > 0]
 
-    __, imap = np.unique(mesh.edge.ifwd, return_index=True)
+        __, imap = np.unique(mesh.edge.ifwd, return_index=True)
 
-    mesh.edge.ifwd = mesh.edge.ifwd[np.sort(imap)]
+        mesh.edge.ifwd = mesh.edge.ifwd[np.sort(imap)]
 
-    mesh.edge.irev = \
-        np.zeros(mesh.edge.size, dtype=np.int32)
-    mesh.edge.irev[
-        mesh.edge.ifwd - 1] = np.arange(mesh.edge.size) + 1
+        mesh.edge.irev = \
+            np.zeros(mesh.edge.size, dtype=np.int32)
+        mesh.edge.irev[
+            mesh.edge.ifwd - 1] = np.arange(mesh.edge.size) + 1
 
     mask = mesh.cell.edge > 0
     mesh.cell.edge[mask] = \
