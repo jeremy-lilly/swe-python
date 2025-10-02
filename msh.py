@@ -429,7 +429,9 @@ def sort_mesh(mesh, sort=None):
 #-- 1. sort cells via RCM ordering of adjacency matrix
 
     if sort == "tt":
-        pass
+        nlat = np.where(np.isclose(mesh.cell.xlon, np.min(mesh.cell.xlon)))[0].size
+        nlon = mesh.cell.size // nlat
+        mesh.cell.shpe = [nlat, nlon]
     else:
         mesh.cell.ifwd = \
             reverse_cuthill_mckee(cell_ladj(mesh)) + 1
@@ -469,7 +471,7 @@ def sort_mesh(mesh, sort=None):
 #-- 2. sort duals via pseudo-linear cell-wise ordering
 
     if sort == "tt":
-        pass
+        mesh.vert.shpe = [nlat + 1, nlon]
     else:
         mesh.vert.ifwd = np.ravel(mesh.cell.vert)
         mesh.vert.ifwd = mesh.vert.ifwd[mesh.vert.ifwd > 0]
@@ -508,6 +510,7 @@ def sort_mesh(mesh, sort=None):
 #-- 3. sort edges via pseudo-linear cell-wise ordering
 
     if sort == "tt":
+        mesh.edge.shpe = [2 * nlat + 1, nlon]
         # only need to sort edges
         mesh.edge.ifwd = np.argsort(mesh.edge.isrt) + 1
         mesh.edge.irev[
