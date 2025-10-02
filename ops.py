@@ -108,7 +108,7 @@ def trsk_mats(mesh):
                         * trsk.dual_curl_sums
 
     ttoc = time.time()
-   #print("mats:", ttoc - ttic)
+    print("mats:", ttoc - ttic)
     
     ttic = time.time()
 
@@ -129,7 +129,7 @@ def trsk_mats(mesh):
     trsk.edge_lsqr_znrm = edge_lsqr_fxyz(mesh)
 
     ttoc = time.time()
-   #print("lsqr:", ttoc - ttic)
+    print("lsqr:", ttoc - ttic)
     
     ttic = time.time()
 
@@ -162,11 +162,14 @@ def trsk_mats(mesh):
 
     trsk.edge_flux_perp = dmat * wmat * lmat
     # needed for boundary conditions?
-    trsk.edge_flux_perp[mesh.edge.mask, :] *= 0.
+    #trsk.edge_flux_perp[mesh.edge.mask, :] *= 0.
+    bndry = np.logical_not(mesh.edge.mask).astype(int)
+    bndry = spdiags((bndry,), 0)
+    trsk.edge_flux_perp = (trsk.edge_flux_perp.T * bndry).T 
 
     ttoc = time.time()
-   #print("wnrm:", ttoc - ttic)
-
+    print("wnrm:", ttoc - ttic)
+    
     ttic = time.time()
 
     # ensure remapping is always at worst dissipative
@@ -195,7 +198,7 @@ def trsk_mats(mesh):
     )
 
     ttoc = time.time()
-   #print("area:", ttoc - ttic)
+    print("area:", ttoc - ttic)
     
     ttic = time.time()
 
@@ -213,7 +216,7 @@ def trsk_mats(mesh):
    #trsk.edge_cell_reco = edge_cell_reco(mesh, trsk)
 
     ttoc = time.time()
-   #print("reco:", ttoc - ttic)
+    print("reco:", ttoc - ttic)
    
     return trsk
 
