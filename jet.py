@@ -198,6 +198,8 @@ def init(name, save, rsph=1.E+0, pert=True):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
