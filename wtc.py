@@ -103,6 +103,8 @@ def wtc2(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
@@ -187,6 +189,8 @@ def wtcb(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
@@ -290,6 +294,8 @@ def wtcc(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
@@ -462,6 +468,8 @@ def wtc4(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
@@ -562,6 +570,8 @@ def wtc5(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
@@ -702,6 +712,8 @@ def wtc6(name, save, rsph, mesh, trsk, xmid, ymid):
     init["zEdge"] = (("nEdges"), mesh.edge.zpos)
     init["dvEdge"] = (("nEdges"), mesh.edge.vlen)
     init["dcEdge"] = (("nEdges"), mesh.edge.clen)
+    if hasattr(mesh.edge, 'isrt'):
+        init["edgeSortedInds"] = (("nEdges"), mesh.edge.isrt)
 
     init["xVertex"] = (("nVertices"), mesh.vert.xpos)
     init["yVertex"] = (("nVertices"), mesh.vert.ypos)
