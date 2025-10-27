@@ -553,6 +553,9 @@ def wtc5(name, save, rsph, mesh, trsk, xmid, ymid):
     
     hh_cell = hh_cell - zb_cell
 
+    # boundary conditions
+    uu_edge[mesh.edge.mask] = 0.
+
 #-- inject mesh with IC.'s and write output MPAS netCDF file
 
     print("Output written to:", save)
