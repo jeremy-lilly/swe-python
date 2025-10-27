@@ -587,9 +587,12 @@ def dual_flux_sums(mesh):
     ivec = np.array([], dtype=np.int32)
     jvec = np.array([], dtype=np.int32)
 
+    bndry = np.logical_not(mesh.vert.mask)
+
     for edge in range(mesh.vert.degr):
 
-        mask = mesh.vert.edge[:, edge] > 0
+        mask = np.all(np.vstack((mesh.vert.edge[:, edge] > 0,
+                                 bndry)), axis=0)
 
         vidx = np.arange(0, mesh.vert.size)[mask]
 
@@ -610,7 +613,8 @@ def dual_flux_sums(mesh):
         xvec = np.hstack((
             xvec, -clen[flip], clen[okay]))
         
-    return csr_matrix((xvec, (ivec, jvec)))
+    return csr_matrix((xvec, (ivec, jvec)),
+                      shape=(mesh.vert.size, mesh.edge.size))
 
 
 def dual_curl_sums(mesh):
