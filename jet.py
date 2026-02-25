@@ -31,7 +31,18 @@ def ujet(alat, lat0, lat1, uamp, rsph):
     return val
 
 
-def init(name, save, rsph=1.E+0, pert=True):
+def init(name, save,
+         rsph=6371220.0,
+         pert=True,
+         umax=80.0,
+         hmean=1.e4,
+         jet_center=np.pi / 4.,
+         jet_width=3. * np.pi / 14.,
+         pert_lat=np.pi / 4.,
+         pert_lon=np.pi,
+         pert_scale=120.,
+         pert_lat_scale=1. / 15.,
+         pert_lon_scale=1. / 3.):
     """
     INIT: Form SWE initial conditions for the barotropic jet
     case.
@@ -73,11 +84,11 @@ def init(name, save, rsph=1.E+0, pert=True):
     erot = 7.292E-05            # Earth's omega
     grav = 9.80616 * (rsph / 6371220.0)     # gravity
 
-    lat0 = np.pi / 7.0          # jet lat width
-    lat1 = np.pi / 2.0 - lat0
+    lat0 = jet_center - jet_width / 2.
+    lat1 = jet_center + jet_width / 2.
 
-    umid = 8.000E+01 * (rsph / 6371220.0)   # jet max speed
-    hbar = 1.000E+04 * (rsph / 6371220.0)   # mean layer hh
+    umid = umax * (rsph / 6371220.0)   # jet max speed
+    hbar = hmean * (rsph / 6371220.0)   # mean layer hh
 
     uamp = umid / np.exp(-4. / (lat1 - lat0) ** 2)
 
@@ -122,7 +133,6 @@ def init(name, save, rsph=1.E+0, pert=True):
 
     unrm = trsk.edge_grad_perp * vpsi * -1.00
 
-   #uprp = trsk.edge_lsqr_perp * unrm * -1.00
     uprp = trsk.edge_grad_norm * cpsi * -1.00
 
     udiv = trsk.cell_flux_sums * unrm
@@ -160,16 +170,13 @@ def init(name, save, rsph=1.E+0, pert=True):
 
 #-- optional: add perturbation to the thickness distribution
 
-    lat2 = np.pi / 4.               # perturbation constants
-    lon2 = np.pi / 1.
-
-    hmul = 120.0 * (rsph / 6371220.0)
-    eta1 = 1. / 3.
-    eta2 = 1. / 15.
+    hmul = pert_scale * (rsph / 6371220.0)
+    eta1 = pert_lon_scale
+    eta2 = pert_lat_scale
 
     hadd = (hmul * np.cos(mesh.cell.ylat) *
-       np.exp(-((mesh.cell.xlon - lon2) / eta1) ** 2) *
-       np.exp(-((lat2 - mesh.cell.ylat) / eta2) ** 2)
+       np.exp(-((mesh.cell.xlon - pert_lon) / eta1) ** 2) *
+       np.exp(-((pert_lat - mesh.cell.ylat) / eta2) ** 2)
     )
 
     hdel = hdel + float(pert) * hadd
@@ -255,15 +262,93 @@ if (__name__ == "__main__"):
     parser.add_argument(
         "--with-pert", dest="with_pert",
         type=lambda x: bool(strtobool(str(x.strip()))),
-        required=True, help="True to add h perturbation.")
+        required=False, default=True,
+        help=("True to add h perturbation. "
+              "Default: True")
+    )
 
     parser.add_argument(
         "--radius", dest="radius", type=float,
-        required=True, help="Value of sphere_radius [m].")
+        required=False, default=6371220.0,
+        help=("Value of sphere_radius [m]. "
+              "Default: 6,371,220")
+    )
 
+    parser.add_argument(
+        "--umax", dest="umax", type=float,
+        required=False, default=80.0,
+        help=("Maximum speed of the jet [m/s]. "
+              "Default: 80")
+    )
+
+    parser.add_argument(
+        "--hmean", dest="hmean", type=float,
+        required=False, default=1e4,
+        help=("Mean fluid thickness [m]. "
+              "Default: 10,000")
+    )
+
+    parser.add_argument(
+        "--jet-center", dest="jet_center", type=float,
+        required=False, default=np.pi / 4.,
+        help=("Latitudinal center of jet [deg lat]. "
+              "Default: pi/4")
+    )
+
+    parser.add_argument(
+        "--jet-width", dest="jet_width", type=float,
+        required=False, default=3. * np.pi / 14.,
+        help=("Latitudinal width of jet [deg lat]. "
+              "Default: 3pi/14")
+    )
+    
+    parser.add_argument(
+        "--pert-lat", dest="pert_lat", type=float,
+        required=False, default=np.pi / 4.,
+        help=("Latitude of thickness perturbation [deg lat]. "
+              "Default: pi/4")
+    )
+
+    parser.add_argument(
+        "--pert-lon", dest="pert_lon", type=float,
+        required=False, default=np.pi,
+        help=("Longitude of thickness perturbation [deg lon]. "
+              "Default: pi")
+    )
+    
+    parser.add_argument(
+        "--pert-scale", dest="pert_scale", type=float,
+        required=False, default=120.,
+        help=("Scaling constant for thickness perturbation [m]. "
+              "Default: 120")
+    )
+    
+    parser.add_argument(
+        "--pert-lat-scale", dest="pert_lat_scale", type=float,
+        required=False, default=1. / 15.,
+        help=("Latitudinal scaling constant for thickness perturbation [m]. "
+              "Default: 1/15")
+    )
+
+    parser.add_argument(
+        "--pert-lon-scale", dest="pert_lon_scale", type=float,
+        required=False, default=1. / 3.,
+        help=("Longitudinal scaling constant for thickness perturbation [m]. "
+              "Default: 1/3")
+    )
+    
     args = parser.parse_args()
 
     init(name=args.mesh_file,
          save=args.init_file,
          rsph=args.radius,
-         pert=args.with_pert)
+         pert=args.with_pert,
+         umax=args.umax,
+         hmean=args.hmean,
+         jet_center=args.jet_center,
+         jet_width=args.jet_width,
+         pert_lat=args.pert_lat,
+         pert_lon=args.pert_lon,
+         pert_scale=args.pert_scale,
+         pert_lat_scale=args.pert_lat_scale,
+         pert_lon_scale=args.pert_lon_scale)
